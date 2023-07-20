@@ -6,6 +6,7 @@ import numpy as np
 from pytesseract import Output
 import pytesseract as ts
 import cv2
+import math
 
 
 def get_image(file):
@@ -16,6 +17,7 @@ def get_image(file):
         image = Image.open(file)
     image = np.array(image)
     return image
+
 
 def isprice(text) -> bool:
     curr = ""
@@ -30,7 +32,7 @@ def isprice(text) -> bool:
             if (
                 point == False
                 and i != 0
-                and i != len(text) + 1
+                and i != len(text) - 1
                 and text[i - 1].isdigit()
                 and text[i + 1].isdigit()
             ):
@@ -126,18 +128,20 @@ def get_data(line, line_format):
             line_index += 1
     return row
 
+
 def most_frequent(List):
     counter = 0
     num = List[0]
     for i in List:
         curr_frequency = List.count(i)
-        if(curr_frequency> counter):
+        if curr_frequency > counter:
             counter = curr_frequency
             num = i
     return num
 
+
 def isolate_products(product_lines):
-    lines =[]
+    lines = []
     last_line = -1
     distances = []
     for line in product_lines:
@@ -150,24 +154,126 @@ def isolate_products(product_lines):
     step = most_frequent(distances)
     for ind in range(len(lines)):
         neighbours_count = 0
-        if ind != 0 :
-            if lines[ind] - lines[ind-1] < step + 10 :
-                neighbours_count +=1
-        if ind!=len(lines)-1 :
-            if lines[ind+1] - lines[ind] < step + 10 :
-                neighbours_count +=1
-        if neighbours_count==0:
+        if ind != 0:
+            if lines[ind] - lines[ind - 1] < step + 10:
+                neighbours_count += 1
+        if ind != len(lines) - 1:
+            if lines[ind + 1] - lines[ind] < step + 10:
+                neighbours_count += 1
+        if neighbours_count == 0:
             product_lines.pop(lines[ind])
-    
+
+
 def get_lines(df):
     product_lines = {}
-    prices = df[df['text'].apply(isprice)]
+    prices = df[df["text"].apply(isprice)]
     for x in prices.top.values:
         product_lines[x] = []
-    for ind,row in df.iterrows():
+    for ind, row in df.iterrows():
         for line in product_lines:
-            if same_line(row.top,line) :
+            if same_line(row.top, line):
                 product_lines[line].append(row.text)
         for line in product_lines:
-            merge_names(product_lines[line])   
+            merge_names(product_lines[line])
     return product_lines
+
+
+def del_suffix(product_lines):
+    for line in product_lines:
+        for element in reversed(product_lines[line]):
+            if not isprice(element):
+                product_lines[line].remove(element)
+            else:
+                break
+
+
+def contain(List, sub):
+    for s in List:
+        if sub in s.lower():
+            return True
+    return False
+
+
+def strip_price(raw_price):
+    price = ""
+    for c in raw_price:
+        if c == ",":
+            price += "."
+            continue
+        if c.isdigit() or c == ".":
+            price += c
+    return float(price)
+
+
+def process_additional_data(product_lines):
+    additional_data = {}
+    max_ind = -1
+    data = []
+    taxes = []
+    totals = []
+    calculated_total = 0
+    start_collecting = False
+    additional_data["state"] = ""
+    for ind in product_lines:
+        if contain(product_lines[ind], "tax"):
+            taxes.append(strip_price(product_lines[ind][-1]))
+            start_collecting = True
+            data.append(ind)
+            continue
+        elif contain(product_lines[ind], "total") or contain(
+            product_lines[ind], "balance"
+        ):
+            totals.append(strip_price(product_lines[ind][-1]))
+            data.append(ind)
+            start_collecting = True
+            if len(totals) == 2:
+                start_collecting = False
+            continue
+        elif start_collecting:
+            taxes.append(strip_price(product_lines[ind][-1]))
+            data.append(ind)
+    if data:
+        max_ind = min(data)
+    else :
+        max_ind = max(product_lines) + 1
+    for ind in product_lines:
+        if ind < max_ind:
+            calculated_total += strip_price(product_lines[ind][-1])
+    tax = sum(taxes)
+    if len(totals) == 2:
+        if not math.isclose(totals[0], calculated_total, abs_tol=0.2):
+            additional_data[
+                "state"
+            ] += "carefull there might be an error in the products section\n"
+        additional_data["subtotal"] = totals[0]
+        additional_data["costs"] = tax
+        additional_data["total"] = totals[0] + tax
+        if not math.isclose(totals[1] - totals[0], tax, abs_tol=0.2):
+            additional_data[
+                "state"
+            ] += "carefull there might be an error in the taxes section\n"
+    elif len(totals) == 1:
+        if math.isclose(totals[0], calculated_total, abs_tol=0.2):
+            additional_data["subtotal"] = totals[0]
+            additional_data["tax"] = tax
+            additional_data["total"] = tax + totals[0]
+        elif math.isclose(totals[0], calculated_total + tax, abs_tol=0.2):
+            additional_data["total"] = totals[0]
+            additional_data["tax"] = tax
+            additional_data["subtotal"] = totals[0] - tax
+        else:
+            additional_data[
+                "state"
+            ] += "carefull there might be an error in reading the bill \n"
+            additional_data["total"] = calculated_total
+            additional_data["tax"] = tax
+            additional_data["subtotal"] = totals[0] - tax
+    else:
+        additional_data[
+            "state"
+        ] += "carefull there might be an error in reading the bill \n"
+        additional_data["total"] = calculated_total
+        additional_data["tax"] = tax
+        additional_data["subtotal"] = calculated_total - tax
+    additional_data["limit"] = int(max_ind)
+    return additional_data
