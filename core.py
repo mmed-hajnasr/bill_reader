@@ -1,3 +1,4 @@
+import segmentation as seg
 from pdf2image import convert_from_path
 from PIL import Image
 from matplotlib import pyplot as plt
@@ -7,7 +8,7 @@ from pytesseract import Output
 import pytesseract as ts
 import cv2
 import math
-
+import re
 
 def get_image(file):
     if file.endswith(".pdf"):
@@ -18,37 +19,12 @@ def get_image(file):
     image = np.array(image)
     return image
 
-
-def isprice(text) -> bool:
-    curr = ""
-    point = False
-    for i, c in enumerate(text):
-        if (c == "$" or c == "€") and i == 0:
-            curr = c
-            continue
-        if c.isdigit():
-            continue
-        if c == "." or c == ",":
-            if (
-                point == False
-                and i != 0
-                and i != len(text) - 1
-                and text[i - 1].isdigit()
-                and text[i + 1].isdigit()
-            ):
-                point = True
-            else:
-                return False
-        elif curr == "":
-            curr = text[i:]
-            break
-        else:
-            return False
-    if len(curr) > 4:
-        return False
-    else:
-        return point
-
+def isprice(text):
+    text.strip()
+    pattern = re.compile("^[£€\$]?\d+[,\.]\d+$|^\d+[,\.]\d+[£€\$]?$")
+    if pattern.match(text):
+        return not math.isclose(strip_price(text),0, rel_tol=1e-07, abs_tol=0.0)
+    return False
 
 def is_name(word):
     return not isprice(word) and not word.isdigit()
@@ -240,15 +216,15 @@ def process_additional_data(product_lines):
         if ind < max_ind:
             calculated_total += strip_price(product_lines[ind][-1])
     tax = sum(taxes)
-    if len(totals) == 2:
-        if not math.isclose(totals[0], calculated_total, abs_tol=0.2):
+    if len(totals) >= 2:
+        if not math.isclose(totals[-2], calculated_total, abs_tol=0.2):
             additional_data[
                 "state"
             ] += "carefull there might be an error in the products section\n"
-        additional_data["subtotal"] = totals[0]
-        additional_data["costs"] = tax
-        additional_data["total"] = totals[0] + tax
-        if not math.isclose(totals[1] - totals[0], tax, abs_tol=0.2):
+        additional_data["subtotal"] = totals[-2]
+        additional_data["costs"] = totals[-1] - totals[-2]
+        additional_data["total"] = totals[-1]
+        if not math.isclose(totals[1] - totals[-2], tax, abs_tol=0.2):
             additional_data[
                 "state"
             ] += "carefull there might be an error in the taxes section\n"
@@ -277,3 +253,22 @@ def process_additional_data(product_lines):
         additional_data["subtotal"] = calculated_total - tax
     additional_data["limit"] = int(max_ind)
     return additional_data
+
+def is_scanned(image):
+    number_of_colors = len(np.unique(image.reshape(-1, image.shape[2]), axis=0))
+    return number_of_colors < 1000
+
+def get_final_image(file):
+    image = get_image(file)
+    if not is_scanned(image):
+        image = seg.scan(image)
+    return image
+
+def extract_dates_from_text(text):
+    date_pattern = r'\b\d{1,2}[-/]\d{1,2}[-/]\d{2,4}\b|\b\d{4}[-/]\d{1,2}[-/]\d{1,2}\b|\b\d{1,2}\s(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s\d{2,4}\b|\b(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s\d{1,2},?\s\d{2,4}\b|\b\d{1,2}\s(?:January|February|March|April|May|June|July|August|September|October|November|December)\s\d{2,4}\b'
+    matches = re.findall(date_pattern, text)
+    return matches
+def find_date(df):
+    for word in df.text:
+        if extract_dates_from_text(word):
+            return(extract_dates_from_text(word)[0])
