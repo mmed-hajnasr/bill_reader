@@ -10,6 +10,7 @@ import cv2
 import math
 import re
 
+
 def get_image(file):
     if file.endswith(".pdf"):
         full_image = convert_from_path(file)
@@ -19,12 +20,14 @@ def get_image(file):
     image = np.array(image)
     return image
 
+
 def isprice(text):
     text.strip()
     pattern = re.compile("^[£€\$]?\d+[,\.]\d+$|^\d+[,\.]\d+[£€\$]?$")
     if pattern.match(text):
-        return not math.isclose(strip_price(text),0, rel_tol=1e-07, abs_tol=0.0)
+        return not math.isclose(strip_price(text), 0, rel_tol=1e-07, abs_tol=0.0)
     return False
+
 
 def is_name(word):
     return not isprice(word) and not word.isdigit()
@@ -210,7 +213,7 @@ def process_additional_data(product_lines):
             data.append(ind)
     if data:
         max_ind = min(data)
-    else :
+    else:
         max_ind = max(product_lines) + 1
     for ind in product_lines:
         if ind < max_ind:
@@ -252,11 +255,14 @@ def process_additional_data(product_lines):
         additional_data["tax"] = tax
         additional_data["subtotal"] = calculated_total - tax
     additional_data["limit"] = int(max_ind)
+
     return additional_data
+
 
 def is_scanned(image):
     number_of_colors = len(np.unique(image.reshape(-1, image.shape[2]), axis=0))
     return number_of_colors < 1000
+
 
 def get_final_image(file):
     image = get_image(file)
@@ -264,11 +270,23 @@ def get_final_image(file):
         image = seg.scan(image)
     return image
 
+
 def extract_dates_from_text(text):
-    date_pattern = r'\b\d{1,2}[-/]\d{1,2}[-/]\d{2,4}\b|\b\d{4}[-/]\d{1,2}[-/]\d{1,2}\b|\b\d{1,2}\s(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s\d{2,4}\b|\b(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s\d{1,2},?\s\d{2,4}\b|\b\d{1,2}\s(?:January|February|March|April|May|June|July|August|September|October|November|December)\s\d{2,4}\b'
+    date_pattern = r"\b\d{1,2}[-/]\d{1,2}[-/]\d{2,4}\b|\b\d{4}[-/]\d{1,2}[-/]\d{1,2}\b|\b\d{1,2}\s(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s\d{2,4}\b|\b(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s\d{1,2},?\s\d{2,4}\b|\b\d{1,2}\s(?:January|February|March|April|May|June|July|August|September|October|November|December)\s\d{2,4}\b"
     matches = re.findall(date_pattern, text)
     return matches
+
+
 def find_date(df):
     for word in df.text:
         if extract_dates_from_text(word):
-            return(extract_dates_from_text(word)[0])
+            return extract_dates_from_text(word)[0]
+
+
+def find_name(image):
+    text = ts.image_to_string(image)
+    lst = text.splitlines()
+    for line in lst:
+        cnt = sum(x.isalpha() for x in line)
+        if cnt > 5:
+            return line
