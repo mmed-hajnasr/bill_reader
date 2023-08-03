@@ -1,4 +1,4 @@
-import segmentation as seg
+from odoo import models,fields
 from pdf2image import convert_from_path
 from PIL import Image
 from matplotlib import pyplot as plt
@@ -9,7 +9,8 @@ import pytesseract as ts
 import cv2
 import math
 import re
-
+from datetime import datetime
+import base64
 
 def get_image(file):
     if file.endswith(".pdf"):
@@ -255,7 +256,6 @@ def process_additional_data(product_lines):
         additional_data["tax"] = tax
         additional_data["subtotal"] = calculated_total - tax
     additional_data["limit"] = int(max_ind)
-
     return additional_data
 
 
@@ -267,7 +267,7 @@ def is_scanned(image):
 def get_final_image(file):
     image = get_image(file)
     if not is_scanned(image):
-        image = seg.scan(image)
+        image = scan(image)
     return image
 
 
@@ -290,3 +290,157 @@ def find_name(image):
         cnt = sum(x.isalpha() for x in line)
         if cnt > 5:
             return line
+
+def order_points(pts):
+    '''Rearrange coordinates to order:
+      top-left, top-right, bottom-right, bottom-left'''
+    rect = np.zeros((4, 2), dtype='float32')
+    pts = np.array(pts)
+    s = pts.sum(axis=1)
+    # Top-left point will have the smallest sum.
+    rect[0] = pts[np.argmin(s)]
+    # Bottom-right point will have the largest sum.
+    rect[2] = pts[np.argmax(s)]
+ 
+    diff = np.diff(pts, axis=1)
+    # Top-right point will have the smallest difference.
+    rect[1] = pts[np.argmin(diff)]
+    # Bottom-left will have the largest difference.
+    rect[3] = pts[np.argmax(diff)]
+    # return the ordered coordinates
+    return rect.astype('int').tolist()
+
+def find_dest(pts):
+    (tl, tr, br, bl) = pts
+    # Finding the maximum width.
+    widthA = np.sqrt(((br[0] - bl[0]) ** 2) + ((br[1] - bl[1]) ** 2))
+    widthB = np.sqrt(((tr[0] - tl[0]) ** 2) + ((tr[1] - tl[1]) ** 2))
+    maxWidth = max(int(widthA), int(widthB))
+ 
+    # Finding the maximum height.
+    heightA = np.sqrt(((tr[0] - br[0]) ** 2) + ((tr[1] - br[1]) ** 2))
+    heightB = np.sqrt(((tl[0] - bl[0]) ** 2) + ((tl[1] - bl[1]) ** 2))
+    maxHeight = max(int(heightA), int(heightB))
+    # Final destination co-ordinates.
+    destination_corners = [[0, 0], [maxWidth, 0], [maxWidth, maxHeight], [0, maxHeight]]
+ 
+    return order_points(destination_corners)
+
+
+def scan(img):
+    # Resize image to workable size
+    dim_limit = 1080
+    max_dim = max(img.shape)
+    if max_dim > dim_limit:
+        resize_scale = dim_limit / max_dim
+        img = cv2.resize(img, None, fx=resize_scale, fy=resize_scale)
+    # Create a copy of resized original image for later use
+    orig_img = img.copy()
+    # Repeated Closing operation to remove text from the document.
+    kernel = np.ones((5, 5), np.uint8)
+    img = cv2.morphologyEx(img, cv2.MORPH_CLOSE, kernel, iterations=3)
+    # GrabCut
+    mask = np.zeros(img.shape[:2], np.uint8)
+    bgdModel = np.zeros((1, 65), np.float64)
+    fgdModel = np.zeros((1, 65), np.float64)
+    rect = (20, 20, img.shape[1] - 20, img.shape[0] - 20)
+    cv2.grabCut(img, mask, rect, bgdModel, fgdModel, 5, cv2.GC_INIT_WITH_RECT)
+    mask2 = np.where((mask == 2) | (mask == 0), 0, 1).astype('uint8')
+    img = img * mask2[:, :, np.newaxis]
+ 
+    gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+    gray = cv2.GaussianBlur(gray, (11, 11), 0)
+    # Edge Detection.
+    canny = cv2.Canny(gray, 0, 200)
+    canny = cv2.dilate(canny, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5)))
+ 
+    # Finding contours for the detected edges.
+    contours, hierarchy = cv2.findContours(canny, cv2.RETR_LIST, cv2.CHAIN_APPROX_NONE)
+    # Keeping only the largest detected contour.
+    page = sorted(contours, key=cv2.contourArea, reverse=True)[:5]
+ 
+    # Detecting Edges through Contour approximation.
+    # Loop over the contours.
+    if len(page) == 0:
+        return orig_img
+    for c in page:
+        # Approximate the contour.
+        epsilon = 0.02 * cv2.arcLength(c, True)
+        corners = cv2.approxPolyDP(c, epsilon, True)
+        # If our approximated contour has four points.
+        if len(corners) == 4:
+            break
+    # Sorting the corners and converting them to desired shape.
+    corners = sorted(np.concatenate(corners).tolist())
+    # For 4 corner points being detected.
+    corners = order_points(corners)
+ 
+    destination_corners = find_dest(corners)
+ 
+    h, w = orig_img.shape[:2]
+    # Getting the homography.
+    M = cv2.getPerspectiveTransform(np.float32(corners), np.float32(destination_corners))
+    # Perspective transform using homography.
+    final = cv2.warpPerspective(orig_img, M, (destination_corners[2][0], destination_corners[2][1]),
+                                flags=cv2.INTER_LINEAR)
+    return final
+
+
+# start of the integration
+from datetime import datetime
+import base64
+class bill(models.Model):
+    _inherit = 'hr.expense'
+
+    upload_file = fields.Binary(string='Upload file',default = None)
+    file = fields.Char(string='Upload file')
+    
+    
+    def scan_receipt(self):
+        buffer_file = '/home/odoo/python_buffer/'+self.file
+        with open(buffer_file, 'wb') as f:
+            t = self.upload_file
+            decoded = base64.decodebytes(t)
+            f.write(decoded)
+        image = get_final_image(buffer_file)
+        # extracting the data from the image
+        results = ts.image_to_data(image, 
+        output_type=Output.DICT)
+        df = pd.DataFrame(data= results)
+        df = df[df.text != '']
+        df = df.apply(clean_the_text,axis= 1)
+        product_lines = get_lines(df)
+        del_suffix(product_lines)
+        additional_data = process_additional_data(product_lines)
+        to_del = []
+        for line in product_lines:
+            if line >= additional_data['limit']:
+                to_del.append(line)
+        for line in to_del:
+            product_lines.pop(line)
+        isolate_products(product_lines)
+        formats = []
+        for line in product_lines:
+            formats.append(get_format(product_lines[line]))
+        chosen_format = most_frequent(formats)
+        product_list = pd.DataFrame(columns=chosen_format)
+        for line in product_lines:
+            if follow_format(product_lines[line],chosen_format):
+                product_list.loc[len(product_list.index)] = get_data(product_lines[line],chosen_format)
+        additional_data['date'] = find_date(df)
+        additional_data['name'] = find_name(image)
+
+        # putting the data in the fields
+
+        self.name = additional_data['name']
+        date_formats = ['%m/%d/%Y','%d/%m/%Y']
+        for format in date_formats:        
+            try:
+                date = datetime.strptime(additional_data['date'], format)
+                self.date = date.strftime("%Y-%m-%d")
+            except:
+                pass
+        self.total_amount = additional_data['total']
+        self.description = str(product_list)+'\n'
+        if additional_data['state'] != '':
+            self.description += 'Warning:\n'+additional_data['state']

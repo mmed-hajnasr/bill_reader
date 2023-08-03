@@ -1,0 +1,19 @@
+<?xml version='1.0' encoding='utf-8'?>
+<odoo>
+    <record id="inherited_main_menu" model="ir.ui.view">
+        <field name="name">hr.expense.form.inherit</field>
+        <field name="model">hr.expense</field>
+        <field name="inherit_id" ref="hr_expense.hr_expense_view_form"/>        
+        <field name="arch" type="xml">
+        <xpath expr="//widget[@name='attach_document']" position="replace"/>
+        <xpath expr="//widget[@name='attach_document']" position="replace"/>
+            <xpath expr="//field[@name='name']" position="after">
+                <field name ="upload_file" filename="file" string= "upload your receipt"/>
+                <field name ="file" string= "upload your receipt" invisible = '1' />
+            </xpath>
+            <xpath expr="//button[@name='action_submit_expenses']" position="after">
+                <button name="scan_receipt" string="scan receipt" type="object"/>
+            </xpath>
+        </field>
+    </record>
+</odoo>
