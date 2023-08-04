@@ -42,6 +42,8 @@ pip install -r requirements.txt
 
 **Note:** The second requirements.txt should be installed within the Odoo environment.
 
+**Note:** don't forget to add the /path/to/folder/bill_reader/odoo-integration to the odoo addon path in odoo.conf
+
 With the prerequisites and dependencies in place, you are now ready to use the Receipt Parser as a standalone program or integrate it with your Odoo environment.
 
 ## Files and their Purposes
