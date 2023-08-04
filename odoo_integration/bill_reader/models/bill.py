@@ -387,16 +387,15 @@ def scan(img):
 
 
 # start of the integration
-from datetime import datetime
-import base64
 class bill(models.Model):
     _inherit = 'hr.expense'
 
     upload_file = fields.Binary(string='Upload file',default = None)
     file = fields.Char(string='Upload file')
     
-    
     def scan_receipt(self):
+        if self.file == False:
+            return
         buffer_file = '/home/odoo/python_buffer/'+self.file
         with open(buffer_file, 'wb') as f:
             t = self.upload_file
