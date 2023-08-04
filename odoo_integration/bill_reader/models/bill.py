@@ -385,7 +385,7 @@ def scan(img):
                                 flags=cv2.INTER_LINEAR)
     return final
 
-
+import os
 # start of the integration
 class bill(models.Model):
     _inherit = 'hr.expense'
@@ -393,15 +393,18 @@ class bill(models.Model):
     upload_file = fields.Binary(string='Upload file',default = None)
     file = fields.Char(string='Upload file')
     
+    @api.onchange(upload_file){
+        scan_receipt()
+    }
     def scan_receipt(self):
         if self.file == False:
             return
         buffer_file = '/home/odoo/python_buffer/'+self.file
         with open(buffer_file, 'wb') as f:
-            t = self.upload_file
-            decoded = base64.decodebytes(t)
+            decoded = base64.decodebytes(self.upload_file)
             f.write(decoded)
         image = get_final_image(buffer_file)
+        os.remove(buffer_file)
         # extracting the data from the image
         results = ts.image_to_data(image, 
         output_type=Output.DICT)
