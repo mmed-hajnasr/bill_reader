@@ -11,9 +11,9 @@
                 <field name ="upload_file" filename="file" string= "upload your receipt"/>
                 <field name ="file" string= "upload your receipt" invisible = '1' />
             </xpath>
-            <xpath expr="//button[@name='action_submit_expenses']" position="after">
+            <!-- <xpath expr="//button[@name='action_submit_expenses']" position="after">
                 <button name="scan_receipt" string="scan receipt" type="object"/>
-            </xpath>
+            </xpath> -->
         </field>
     </record>
 </odoo>

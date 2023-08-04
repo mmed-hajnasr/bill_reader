@@ -1,4 +1,4 @@
-from odoo import models,fields
+from odoo import models,fields,api
 from pdf2image import convert_from_path
 from PIL import Image
 from matplotlib import pyplot as plt
@@ -393,9 +393,8 @@ class bill(models.Model):
     upload_file = fields.Binary(string='Upload file',default = None)
     file = fields.Char(string='Upload file')
     
-    @api.onchange(upload_file){
-        scan_receipt()
-    }
+
+    @api.onchange("upload_file")
     def scan_receipt(self):
         if self.file == False:
             return
